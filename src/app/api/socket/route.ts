@@ -6,7 +6,10 @@ declare global {
   var io: Server | undefined;
 }
 
-export const runtime = 'edge';
+// New Next.js 13+ configuration format
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const preferredRegion = 'auto';
 
 export async function GET(req: NextRequest) {
   if (!global.io) {
@@ -61,12 +64,4 @@ export async function OPTIONS(req: NextRequest) {
       'Access-Control-Max-Age': '86400',
     },
   });
-}
-
-export const dynamic = 'force-dynamic';
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-}; 
+} 
