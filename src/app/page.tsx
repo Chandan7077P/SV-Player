@@ -7,59 +7,82 @@ export default function Home() {
   const [isConnected, setIsConnected] = useState(false);
   const [roomId, setRoomId] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [connectionError, setConnectionError] = useState<string>('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    // Get the base URL for Socket.IO connection
-    const baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL 
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-      : 'http://localhost:3000';
+    const connectSocket = async () => {
+      try {
+        // Get the current URL dynamically
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host;
+        const baseUrl = `${window.location.protocol}//${host}`;
+        
+        console.log('Attempting to connect to:', baseUrl);
 
-    // Initialize socket connection
-    socketRef.current = io(baseUrl, {
-      path: '/api/socket',
-      addTrailingSlash: false,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
+        // Initialize socket connection
+        socketRef.current = io(baseUrl, {
+          path: '/api/socket',
+          transports: ['websocket'],
+          timeout: 10000,
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+        });
 
-    socketRef.current.on('connect', () => {
-      console.log('Socket connected');
-      setIsConnected(true);
-    });
+        socketRef.current.on('connect', () => {
+          console.log('Socket connected successfully');
+          setIsConnected(true);
+          setConnectionError('');
+        });
 
-    socketRef.current.on('connect_error', (error) => {
-      console.log('Socket connection error:', error);
-      setIsConnected(false);
-    });
+        socketRef.current.on('connect_error', (error) => {
+          console.error('Socket connection error:', error);
+          setIsConnected(false);
+          setConnectionError(`Connection error: ${error.message}`);
+        });
 
-    socketRef.current.on('disconnect', () => {
-      console.log('Socket disconnected');
-      setIsConnected(false);
-    });
+        socketRef.current.on('disconnect', (reason) => {
+          console.log('Socket disconnected:', reason);
+          setIsConnected(false);
+          setConnectionError(`Disconnected: ${reason}`);
+        });
 
-    socketRef.current.on('videoSync', (data: { action: string; time?: number }) => {
-      if (!videoRef.current) return;
+        socketRef.current.on('error', (error) => {
+          console.error('Socket error:', error);
+          setConnectionError(`Socket error: ${error}`);
+        });
 
-      switch (data.action) {
-        case 'play':
-          videoRef.current.play();
-          break;
-        case 'pause':
-          videoRef.current.pause();
-          break;
-        case 'seek':
-          if (data.time !== undefined) {
-            videoRef.current.currentTime = data.time;
+        socketRef.current.on('videoSync', (data: { action: string; time?: number }) => {
+          console.log('Received videoSync event:', data);
+          if (!videoRef.current) return;
+
+          switch (data.action) {
+            case 'play':
+              videoRef.current.play();
+              break;
+            case 'pause':
+              videoRef.current.pause();
+              break;
+            case 'seek':
+              if (data.time !== undefined) {
+                videoRef.current.currentTime = data.time;
+              }
+              break;
           }
-          break;
+        });
+      } catch (error) {
+        console.error('Error setting up socket:', error);
+        setConnectionError(`Setup error: ${error}`);
       }
-    });
+    };
+
+    connectSocket();
 
     return () => {
       if (socketRef.current) {
+        console.log('Cleaning up socket connection');
         socketRef.current.disconnect();
       }
     };
@@ -78,12 +101,14 @@ export default function Home() {
 
   const handleJoinRoom = () => {
     if (roomId && socketRef.current) {
+      console.log('Joining room:', roomId);
       socketRef.current.emit('joinRoom', roomId);
     }
   };
 
   const handleVideoAction = (action: string, time?: number) => {
-    if (socketRef.current) {
+    if (socketRef.current && roomId) {
+      console.log('Emitting video action:', { action, time, room: roomId });
       socketRef.current.emit('videoSync', { action, time, room: roomId });
     }
   };
@@ -121,7 +146,12 @@ export default function Home() {
               {isConnected ? (
                 <span className="text-green-500">Connected</span>
               ) : (
-                <span className="text-red-500">Disconnected</span>
+                <div>
+                  <span className="text-red-500">Disconnected</span>
+                  {connectionError && (
+                    <p className="text-red-500 text-xs mt-1">{connectionError}</p>
+                  )}
+                </div>
               )}
             </div>
           </div>

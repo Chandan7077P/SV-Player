@@ -6,60 +6,68 @@ declare global {
   var io: SocketIOServer | undefined;
 }
 
-// Keep track of active connections
-let io: SocketIOServer;
-
 if (!global.io) {
-  io = new SocketIOServer({
+  console.log('Initializing Socket.IO server');
+  global.io = new SocketIOServer({
     path: '/api/socket',
     addTrailingSlash: false,
     cors: {
       origin: '*',
       methods: ['GET', 'POST'],
+      credentials: true,
     },
-    transports: ['websocket', 'polling'],
+    transports: ['websocket'],
     pingTimeout: 60000,
     pingInterval: 25000,
-  });
-  global.io = io;
-} else {
-  io = global.io;
-}
-
-io.on('connection', (socket) => {
-  console.log('Client connected');
-
-  socket.on('joinRoom', (roomId: string) => {
-    socket.join(roomId);
-    console.log(`Client joined room: ${roomId}`);
+    connectTimeout: 10000,
   });
 
-  socket.on('videoSync', (data: { action: string; time?: number; room: string }) => {
-    console.log('Video sync event:', data);
-    socket.to(data.room).emit('videoSync', {
-      action: data.action,
-      time: data.time,
+  global.io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
+
+    socket.on('joinRoom', (roomId: string) => {
+      socket.join(roomId);
+      console.log(`Client ${socket.id} joined room: ${roomId}`);
+      // Notify the client that they've joined the room
+      socket.emit('roomJoined', { roomId });
+    });
+
+    socket.on('videoSync', (data: { action: string; time?: number; room: string }) => {
+      console.log(`Video sync event from ${socket.id}:`, data);
+      socket.to(data.room).emit('videoSync', {
+        action: data.action,
+        time: data.time,
+      });
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log(`Client ${socket.id} disconnected:`, reason);
+    });
+
+    socket.on('error', (error) => {
+      console.error(`Socket ${socket.id} error:`, error);
     });
   });
-
-  socket.on('disconnect', () => {
-    console.log('Client disconnected');
-  });
-});
+} else {
+  console.log('Using existing Socket.IO server');
+}
 
 export async function GET(request: NextRequest) {
   try {
+    console.log('Handling Socket.IO request');
     // @ts-ignore
-    await io.attachRequest(request);
+    await global.io.attachRequest(request);
     return new NextResponse(null, { 
       status: 200,
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET,POST',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Credentials': 'true',
       }
     });
   } catch (error) {
-    console.error('Socket.IO error:', error);
+    console.error('Socket.IO request error:', error);
     return new NextResponse(null, { status: 500 });
   }
 }
