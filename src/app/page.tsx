@@ -11,17 +11,32 @@ export default function Home() {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
+    // Get the base URL for Socket.IO connection
+    const baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL 
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+      : 'http://localhost:3000';
+
     // Initialize socket connection
-    socketRef.current = io({
+    socketRef.current = io(baseUrl, {
       path: '/api/socket',
       addTrailingSlash: false,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
 
     socketRef.current.on('connect', () => {
+      console.log('Socket connected');
       setIsConnected(true);
     });
 
+    socketRef.current.on('connect_error', (error) => {
+      console.log('Socket connection error:', error);
+      setIsConnected(false);
+    });
+
     socketRef.current.on('disconnect', () => {
+      console.log('Socket disconnected');
       setIsConnected(false);
     });
 
@@ -44,7 +59,9 @@ export default function Home() {
     });
 
     return () => {
-      socketRef.current?.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
     };
   }, []);
 
