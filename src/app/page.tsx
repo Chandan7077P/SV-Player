@@ -21,18 +21,29 @@ export default function Home() {
         const baseUrl = window.location.origin;
         console.log('Connecting to Socket.IO at:', baseUrl);
 
-        socketRef.current = io(baseUrl, {
+        socketRef.current = io({
           path: '/api/socket',
+          addTrailingSlash: false,
           transports: ['websocket', 'polling'],
+          reconnection: true,
           reconnectionAttempts: 5,
           reconnectionDelay: 1000,
-          timeout: 10000,
+          reconnectionDelayMax: 5000,
+          timeout: 20000,
+          autoConnect: true,
+          forceNew: true,
         });
 
         socketRef.current.on('connect', () => {
-          console.log('Connected to Socket.IO');
+          console.log('Connected to server');
           setIsConnected(true);
           setConnectionError('');
+        });
+
+        socketRef.current.on('disconnect', (reason) => {
+          console.log('Disconnected:', reason);
+          setIsConnected(false);
+          setConnectionError(`Disconnected: ${reason}`);
         });
 
         socketRef.current.on('connect_error', (error) => {
@@ -41,10 +52,38 @@ export default function Home() {
           setConnectionError(`Connection error: ${error.message}`);
         });
 
-        socketRef.current.on('disconnect', (reason) => {
-          console.log('Disconnected:', reason);
+        socketRef.current.on('error', (error) => {
+          console.error('Socket error:', error);
           setIsConnected(false);
-          setConnectionError(`Disconnected: ${reason}`);
+          setConnectionError(`Socket error: ${error.message}`);
+        });
+
+        socketRef.current.on('reconnect', (attemptNumber) => {
+          console.log('Reconnected after', attemptNumber, 'attempts');
+          setIsConnected(true);
+          setConnectionError('');
+        });
+
+        socketRef.current.on('reconnect_attempt', (attemptNumber) => {
+          console.log('Attempting to reconnect:', attemptNumber);
+          setConnectionError(`Reconnecting (attempt ${attemptNumber})`);
+        });
+
+        socketRef.current.on('reconnect_error', (error) => {
+          console.error('Reconnection error:', error);
+          setIsConnected(false);
+          setConnectionError(`Reconnection error: ${error.message}`);
+        });
+
+        socketRef.current.on('reconnect_failed', () => {
+          console.error('Failed to reconnect');
+          setIsConnected(false);
+          setConnectionError('Reconnection failed');
+        });
+
+        socketRef.current.on('connectionStatus', (status) => {
+          console.log('Connection status:', status);
+          setConnectionError(`${status.status} (${status.transport})`);
         });
 
         socketRef.current.on('roomJoined', (data) => {
@@ -70,6 +109,7 @@ export default function Home() {
         });
       } catch (error) {
         console.error('Socket setup error:', error);
+        setIsConnected(false);
         setConnectionError(`Setup error: ${error}`);
       }
     };
@@ -77,7 +117,16 @@ export default function Home() {
     connectSocket();
 
     return () => {
-      socketRef.current?.disconnect();
+      socketRef.current?.off('connect');
+      socketRef.current?.off('disconnect');
+      socketRef.current?.off('connect_error');
+      socketRef.current?.off('error');
+      socketRef.current?.off('reconnect');
+      socketRef.current?.off('reconnect_attempt');
+      socketRef.current?.off('reconnect_error');
+      socketRef.current?.off('reconnect_failed');
+      socketRef.current?.off('connectionStatus');
+      socketRef.current?.close();
     };
   }, []);
 
