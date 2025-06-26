@@ -12,10 +12,9 @@ export default function Home() {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    const connectSocket = async () => {
+    const connectSocket = () => {
       try {
         if (socketRef.current?.connected) {
-          console.log('Socket already connected');
           return;
         }
 
@@ -23,57 +22,41 @@ export default function Home() {
         console.log('Connecting to Socket.IO at:', baseUrl);
 
         socketRef.current = io(baseUrl, {
-          autoConnect: true,
-          reconnection: true,
+          path: '/api/socket',
+          transports: ['websocket', 'polling'],
           reconnectionAttempts: 5,
           reconnectionDelay: 1000,
-          reconnectionDelayMax: 5000,
-          timeout: 20000,
-          transports: ['websocket'],
-          forceNew: true,
-          path: '/api/socket',
+          timeout: 10000,
         });
 
         socketRef.current.on('connect', () => {
-          console.log('Socket connected with ID:', socketRef.current?.id);
+          console.log('Connected to Socket.IO');
           setIsConnected(true);
           setConnectionError('');
         });
 
         socketRef.current.on('connect_error', (error) => {
-          console.error('Socket connection error:', error.message);
+          console.error('Connection error:', error);
           setIsConnected(false);
           setConnectionError(`Connection error: ${error.message}`);
-
-          // Try to reconnect with polling if WebSocket fails
-          if (error.message.includes('websocket')) {
-            console.log('Retrying with polling transport...');
-            socketRef.current?.disconnect();
-            socketRef.current = io(baseUrl, {
-              transports: ['polling'],
-              path: '/api/socket',
-            });
-          }
         });
 
         socketRef.current.on('disconnect', (reason) => {
-          console.log('Socket disconnected:', reason);
+          console.log('Disconnected:', reason);
           setIsConnected(false);
           setConnectionError(`Disconnected: ${reason}`);
         });
 
         socketRef.current.on('roomJoined', (data) => {
-          console.log('Successfully joined room:', data.roomId);
-          setConnectionError('');
+          console.log('Joined room:', data.roomId);
         });
 
         socketRef.current.on('videoSync', (data: { action: string; time?: number }) => {
-          console.log('Received video sync:', data);
           if (!videoRef.current) return;
 
           switch (data.action) {
             case 'play':
-              videoRef.current.play().catch(e => console.error('Play error:', e));
+              videoRef.current.play().catch(console.error);
               break;
             case 'pause':
               videoRef.current.pause();
@@ -94,7 +77,6 @@ export default function Home() {
     connectSocket();
 
     return () => {
-      console.log('Cleaning up socket connection');
       socketRef.current?.disconnect();
     };
   }, []);
@@ -117,26 +99,18 @@ export default function Home() {
     }
 
     if (!socketRef.current?.connected) {
-      setConnectionError('Socket not connected. Please wait or refresh the page.');
+      setConnectionError('Not connected to server');
       return;
     }
 
-    console.log('Joining room:', roomId);
     socketRef.current.emit('joinRoom', roomId);
   };
 
   const handleVideoAction = (action: string, time?: number) => {
-    if (!socketRef.current?.connected) {
-      console.warn('Cannot sync video: Socket not connected');
+    if (!socketRef.current?.connected || !roomId) {
       return;
     }
 
-    if (!roomId) {
-      console.warn('Cannot sync video: No room joined');
-      return;
-    }
-
-    console.log('Emitting video action:', { action, time, room: roomId });
     socketRef.current.emit('videoSync', { action, time, room: roomId });
   };
 
