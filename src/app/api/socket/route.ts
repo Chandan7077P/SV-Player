@@ -1,3 +1,4 @@
+import { Server as NetServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -6,68 +7,67 @@ declare global {
   var io: SocketIOServer | undefined;
 }
 
-if (!global.io) {
-  console.log('Initializing Socket.IO server');
-  global.io = new SocketIOServer({
-    path: '/api/socket',
-    addTrailingSlash: false,
-    cors: {
-      origin: '*',
-      methods: ['GET', 'POST'],
-      credentials: true,
-    },
-    transports: ['websocket'],
-    pingTimeout: 60000,
-    pingInterval: 25000,
-    connectTimeout: 10000,
-  });
-
-  global.io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
-
-    socket.on('joinRoom', (roomId: string) => {
-      socket.join(roomId);
-      console.log(`Client ${socket.id} joined room: ${roomId}`);
-      // Notify the client that they've joined the room
-      socket.emit('roomJoined', { roomId });
-    });
-
-    socket.on('videoSync', (data: { action: string; time?: number; room: string }) => {
-      console.log(`Video sync event from ${socket.id}:`, data);
-      socket.to(data.room).emit('videoSync', {
-        action: data.action,
-        time: data.time,
-      });
-    });
-
-    socket.on('disconnect', (reason) => {
-      console.log(`Client ${socket.id} disconnected:`, reason);
-    });
-
-    socket.on('error', (error) => {
-      console.error(`Socket ${socket.id} error:`, error);
-    });
-  });
-} else {
-  console.log('Using existing Socket.IO server');
-}
-
-export async function GET(request: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    console.log('Handling Socket.IO request');
-    // @ts-ignore
-    await global.io.attachRequest(request);
-    return new NextResponse(null, { 
+    if (!global.io) {
+      console.log('Initializing new Socket.IO server');
+      
+      const io = new SocketIOServer({
+        cors: {
+          origin: '*',
+          methods: ['GET', 'POST'],
+          credentials: true,
+        },
+        transports: ['websocket', 'polling'],
+        path: '/api/socket',
+        addTrailingSlash: false,
+      });
+
+      io.on('connection', socket => {
+        console.log('Client connected:', socket.id);
+
+        socket.on('joinRoom', (roomId: string) => {
+          socket.join(roomId);
+          console.log(`Client ${socket.id} joined room: ${roomId}`);
+          socket.emit('roomJoined', { roomId });
+        });
+
+        socket.on('videoSync', (data: { action: string; time?: number; room: string }) => {
+          console.log(`Video sync from ${socket.id}:`, data);
+          socket.to(data.room).emit('videoSync', data);
+        });
+
+        socket.on('disconnect', (reason) => {
+          console.log(`Client ${socket.id} disconnected:`, reason);
+        });
+      });
+
+      global.io = io;
+    }
+
+    // Respond to the WebSocket upgrade request
+    if (req.headers.get('upgrade') === 'websocket') {
+      const res = new NextResponse(null, {
+        status: 101,
+        headers: {
+          'Upgrade': 'websocket',
+          'Connection': 'Upgrade',
+        },
+      });
+      return res;
+    }
+
+    return new NextResponse(null, {
       status: 200,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,POST',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Credentials': 'true',
-      }
+        'Content-Type': 'application/json',
+      },
     });
   } catch (error) {
-    console.error('Socket.IO request error:', error);
+    console.error('Socket.IO setup error:', error);
     return new NextResponse(null, { status: 500 });
   }
 }
