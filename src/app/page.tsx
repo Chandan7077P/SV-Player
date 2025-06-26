@@ -12,7 +12,10 @@ export default function Home() {
 
   useEffect(() => {
     // Initialize socket connection
-    socketRef.current = io('http://localhost:3000');
+    socketRef.current = io({
+      path: '/api/socket',
+      addTrailingSlash: false,
+    });
 
     socketRef.current.on('connect', () => {
       setIsConnected(true);
