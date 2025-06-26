@@ -23,11 +23,15 @@ export default function Home() {
         console.log('Connecting to Socket.IO at:', baseUrl);
 
         socketRef.current = io(baseUrl, {
-          path: '/api/socket',
-          transports: ['websocket', 'polling'],
+          autoConnect: true,
+          reconnection: true,
+          reconnectionAttempts: 5,
           reconnectionDelay: 1000,
           reconnectionDelayMax: 5000,
-          reconnectionAttempts: 10,
+          timeout: 20000,
+          transports: ['websocket'],
+          forceNew: true,
+          path: '/api/socket',
         });
 
         socketRef.current.on('connect', () => {
@@ -40,6 +44,16 @@ export default function Home() {
           console.error('Socket connection error:', error.message);
           setIsConnected(false);
           setConnectionError(`Connection error: ${error.message}`);
+
+          // Try to reconnect with polling if WebSocket fails
+          if (error.message.includes('websocket')) {
+            console.log('Retrying with polling transport...');
+            socketRef.current?.disconnect();
+            socketRef.current = io(baseUrl, {
+              transports: ['polling'],
+              path: '/api/socket',
+            });
+          }
         });
 
         socketRef.current.on('disconnect', (reason) => {
@@ -50,6 +64,7 @@ export default function Home() {
 
         socketRef.current.on('roomJoined', (data) => {
           console.log('Successfully joined room:', data.roomId);
+          setConnectionError('');
         });
 
         socketRef.current.on('videoSync', (data: { action: string; time?: number }) => {

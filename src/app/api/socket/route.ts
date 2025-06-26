@@ -1,4 +1,3 @@
-import { Server as NetServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -6,6 +5,8 @@ import type { NextRequest } from 'next/server';
 declare global {
   var io: SocketIOServer | undefined;
 }
+
+export const runtime = 'edge';
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,9 +19,14 @@ export async function GET(req: NextRequest) {
           methods: ['GET', 'POST'],
           credentials: true,
         },
-        transports: ['websocket', 'polling'],
-        path: '/api/socket',
-        addTrailingSlash: false,
+        connectionStateRecovery: {
+          maxDisconnectionDuration: 2 * 60 * 1000,
+          skipMiddlewares: true,
+        },
+        allowEIO3: true,
+        connectTimeout: 45000,
+        pingTimeout: 30000,
+        pingInterval: 25000,
       });
 
       io.on('connection', socket => {
@@ -45,16 +51,22 @@ export async function GET(req: NextRequest) {
       global.io = io;
     }
 
-    // Respond to the WebSocket upgrade request
-    if (req.headers.get('upgrade') === 'websocket') {
-      const res = new NextResponse(null, {
-        status: 101,
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-        },
-      });
-      return res;
+    const upgrade = req.headers.get('upgrade');
+    const socketId = req.headers.get('socket-id');
+
+    if (upgrade?.toLowerCase() === 'websocket') {
+      try {
+        // @ts-ignore
+        await global.io.attachWebSocket(req, {
+          headers: {
+            'Sec-WebSocket-Protocol': 'websocket',
+          }
+        });
+        return new NextResponse(null, { status: 101 });
+      } catch (e) {
+        console.error('WebSocket attachment error:', e);
+        return new NextResponse('WebSocket upgrade failed', { status: 400 });
+      }
     }
 
     return new NextResponse(null, {
@@ -62,14 +74,31 @@ export async function GET(req: NextRequest) {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, socket-id',
         'Content-Type': 'application/json',
       },
     });
   } catch (error) {
     console.error('Socket.IO setup error:', error);
-    return new NextResponse(null, { status: 500 });
+    return new NextResponse(JSON.stringify({ error: 'Internal Server Error' }), { 
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
   }
+}
+
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, socket-id',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
 }
 
 export const dynamic = 'force-dynamic'; 
